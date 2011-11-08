@@ -27,8 +27,6 @@ namespace AngiesList.Redis
             base.Initialize(name, config);
 			
 			lockHashKey = name+":LockedSessions";
-
-            //bucket = KeyValueStore.Bucket(name);
 			
             sessionStateConfig = (SessionStateSection)WebConfigurationManager.GetSection("system.web/sessionState");
 			var stateConnection = sessionStateConfig.StateConnectionString;
@@ -91,12 +89,6 @@ namespace AngiesList.Redis
             lockId = null;
             actions = SessionStateActions.None;
 			
-			
-			//
-			//sessionItemHash.Add("lockedTime", BitConverter.GetBytes(DateTime.Now.Ticks/TimeSpan.TicksPerMillisecond));
-			//
-			
-			
             if (sessionData == null)
             {
                 return null;
@@ -124,7 +116,12 @@ namespace AngiesList.Redis
             out object lockId, 
             out SessionStateActions actions)
         {
-            return GetItem(context, id, out locked, out lockAge, out lockId, out actions);
+            
+			//TODO
+			//sessionItemHash.Add("lockedTime", BitConverter.GetBytes(DateTime.Now.Ticks/TimeSpan.TicksPerMillisecond));
+			//
+			
+			return GetItem(context, id, out locked, out lockAge, out lockId, out actions);
         }
 
         public override SessionStateStoreData CreateNewStoreData(HttpContext context, int timeout)
@@ -187,6 +184,7 @@ namespace AngiesList.Redis
 		
 		public override void ResetItemTimeout(HttpContext context, string id)
         {
+			//TODO
         }
 			
 		private string GetKeyForSessionId(string id) {
