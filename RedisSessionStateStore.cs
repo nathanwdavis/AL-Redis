@@ -83,19 +83,19 @@ namespace AngiesList.Redis
             out object lockId, 
             out SessionStateActions actions)
         {
-            var sessionData = redis.Hashes.GetAll(0, GetKeyForSessionId(id)).Result;
+            var getSessionData = redis.Hashes.GetAll(0, GetKeyForSessionId(id));
             locked = false;
             lockAge = new TimeSpan(0);
             lockId = null;
             actions = SessionStateActions.None;
 			
-            if (sessionData == null)
+            if (getSessionData.Result == null)
             {
                 return null;
             }
             else
             {
-                var ms = new MemoryStream(sessionData["data"]);
+                var ms = new MemoryStream(getSessionData.Result["data"]);
                 var sessionItems = new SessionStateItemCollection();
 
                 if (ms.Length > 0)
@@ -116,13 +116,104 @@ namespace AngiesList.Redis
             out object lockId, 
             out SessionStateActions actions)
         {
-            
+            var rawLockData = redis.Hashes.Get(0, lockHashKey, id).Result;
+			
+			actions = SessionStateActions.None;
+			locked = false;
+			lockId = null;
+			lockAge = TimeSpan.MinValue;
+			
+			if (rawLockData == null) {
+				var lockData = LockData.New();
+				using (var trans = redis.CreateTransaction()) {
+					var setLock = trans.Hashes.SetIfNotExists(0, lockHashKey, id, lockData.ToString());
+					var getSessionData = redis.Hashes.GetAll(0, GetKeyForSessionId(id));
+					trans.Execute();
+					
+					if (setLock.Result) {
+						locked = true;
+						lockAge = new TimeSpan(0);
+						lockId = lockData.LockId;
+						var sessionDataHash = getSessionData.Result;
+						actions = sessionDataHash["initialize"][0] == 1 ? 
+								SessionStateActions.InitializeItem : SessionStateActions.None;
+						
+						var ms = new MemoryStream(sessionDataHash["data"]);
+		                var sessionItems = new SessionStateItemCollection();
+		
+		                if (ms.Length > 0)
+		                {
+		                    var reader = new BinaryReader(ms);
+		                    sessionItems = SessionStateItemCollection.Deserialize(reader);
+		                }
+		                return new SessionStateStoreData(sessionItems,
+		                    SessionStateUtility.GetSessionStaticObjects(context),
+		                    (int)sessionStateConfig.Timeout.TotalMinutes);
+					}
+					else {
+						//TODO
+						return null;
+					}
+				}
+			}
+			else {
+				LockData lockData;
+				if (LockData.TryParse(rawLockData, out lockData)) {
+					locked = false;
+					lockId = lockData.LockId;
+					lockAge = DateTime.UtcNow - lockData.LockUtcTime;
+				}
+				//Big FAIL
+				return null;
+			}
+			
 			//TODO
 			//sessionItemHash.Add("lockedTime", BitConverter.GetBytes(DateTime.Now.Ticks/TimeSpan.TicksPerMillisecond));
 			//
 			
-			return GetItem(context, id, out locked, out lockAge, out lockId, out actions);
+			
+			
+			//return GetItem(context, id, out locked, out lockAge, out lockId, out actions);
         }
+		
+		internal struct LockData
+		{
+			static readonly byte SEPERATOR = Encoding.ASCII.GetBytes(";")[0];
+			
+			public static LockData New() {
+				var data = new LockData();
+				data.LockId = Guid.NewGuid().ToByteArray();
+				data.LockUtcTime = DateTime.UtcNow;
+				return data;
+			}
+			public static bool TryParse(byte[] raw, out LockData data) {
+				
+				
+				if (raw.Length > 1) 
+				{
+					var ms = new MemoryStream(raw);
+					var byteReader = new BinaryReader(ms);
+					var lockId = raw.TakeWhile(b=>b != SEPERATOR).ToArray();
+					var lockTicks = BitConverter.ToInt64(raw.Skip(raw.Length +1).ToArray(),0);
+					data = new LockData {
+						LockId = lockId,
+						LockUtcTime = new DateTime(lockTicks)
+					};
+					return true;
+				}
+				data = new LockData();
+				return false;
+			}
+			public byte[] LockId;
+			public DateTime LockUtcTime;
+			public override string ToString()
+			{
+				return BitConverter.ToString(LockId) +";"+ LockUtcTime.Ticks;
+			}
+			public byte[] ToByteArray() {
+				return LockId.Concat(new byte[] {SEPERATOR}.Concat(BitConverter.GetBytes(LockUtcTime.Ticks))).ToArray();
+			}
+		}
 
         public override SessionStateStoreData CreateNewStoreData(HttpContext context, int timeout)
         {
