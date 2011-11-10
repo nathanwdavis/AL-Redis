@@ -53,8 +53,8 @@ namespace AngiesList.Redis
           object lockId,
           bool newItem)
 		{
-			var getLock = redis.Hashes.GetString (0, lockHashKey, id);
-			var lockIdAsString = (string)lockId;
+			var getLock = redis.Hashes.Get(0, lockHashKey, id);
+			var lockIdAsBytes = (byte[])lockId;
 			var ms = new MemoryStream ();
 			var writer = new BinaryWriter (ms);
 
@@ -68,7 +68,12 @@ namespace AngiesList.Redis
 			sessionItemHash.Add ("initialize", new byte[] {0});
 			sessionItemHash.Add ("data", sessionData);
 			
-			if (!String.IsNullOrEmpty (getLock.Result) && getLock.Result == lockIdAsString) {
+			LockData lockData;
+			getLock.Wait();
+			if (getLock.Result == null) {
+				redis.Hashes.Set (0, GetKeyForSessionId (id), sessionItemHash, false);
+			}
+			else if (LockData.TryParse(getLock.Result, out lockData) && lockData.LockId == lockIdAsBytes) {
 				redis.Hashes.Set (0, GetKeyForSessionId (id), sessionItemHash, false);
 				redis.Hashes.Remove (0, lockHashKey, id);
 			}
@@ -110,25 +115,28 @@ namespace AngiesList.Redis
             out object lockId, 
             out SessionStateActions actions)
 		{
-			var rawLockData = redis.Hashes.Get (0, lockHashKey, id).Result;
+			var getLockData = redis.Hashes.Get (0, lockHashKey, id);
 			
 			actions = SessionStateActions.None;
 			locked = false;
 			lockId = null;
 			lockAge = TimeSpan.MinValue;
 			
+			getLockData.Wait();
+			var rawLockData = getLockData.Result;
+			
 			if (rawLockData == null) {
 				var lockData = LockData.New ();
-				using (var trans = redis.CreateTransaction()) {
-					var setLock = trans.Hashes.SetIfNotExists (0, lockHashKey, id, lockData.ToString ());
+				//using (var trans = redis.CreateTransaction()) {
+					var setLock = redis.Hashes.SetIfNotExists (0, lockHashKey, id, lockData.ToByteArray());
 					var getSessionData = redis.Hashes.GetAll (0, GetKeyForSessionId (id));
-					trans.Execute ();
-					
+					//trans.Execute ();
+					setLock.Wait();
 					if (setLock.Result) {
 						locked = true;
 						lockAge = new TimeSpan (0);
 						lockId = lockData.LockId;
-						var sessionDataHash = getSessionData.Result;
+						var sessionDataHash = redis.Wait(getSessionData);
 						actions = sessionDataHash ["initialize"] [0] == 1 ? 
 								SessionStateActions.InitializeItem : SessionStateActions.None;
 						
@@ -143,18 +151,15 @@ namespace AngiesList.Redis
 		                    SessionStateUtility.GetSessionStaticObjects (context),
 		                    (int)sessionStateConfig.Timeout.TotalMinutes);
 					} else {
-						//TODO
-						rawLockData = redis.Hashes.Get (0, lockHashKey, id).Result;
-						if (rawLockData != null) {
-							if (LockData.TryParse (rawLockData, out lockData)) {
-								locked = false;
-								lockId = lockData.LockId;
-								lockAge = DateTime.UtcNow - lockData.LockUtcTime;
-							}
+						rawLockData = redis.Hashes.Get(0, lockHashKey, id).Result;
+						if (rawLockData != null && LockData.TryParse (rawLockData, out lockData)) {
+							locked = false;
+							lockId = lockData.LockId;
+							lockAge = DateTime.UtcNow - lockData.LockUtcTime;
 						}
 						return null;
 					}
-				}
+				//}
 			} else {
 				LockData lockData;
 				if (LockData.TryParse (rawLockData, out lockData)) {
@@ -165,14 +170,6 @@ namespace AngiesList.Redis
 				//Big FAIL
 				return null;
 			}
-			
-			//TODO
-			//sessionItemHash.Add("lockedTime", BitConverter.GetBytes(DateTime.Now.Ticks/TimeSpan.TicksPerMillisecond));
-			//
-			
-			
-			
-			//return GetItem(context, id, out locked, out lockAge, out lockId, out actions);
 		}
 		
 		internal struct LockData
@@ -189,7 +186,7 @@ namespace AngiesList.Redis
 
 			public static bool TryParse (byte[] raw, out LockData data)
 			{
-				if (raw.Length > 1) {
+				if (raw != null && raw.Length > 1) {
 					var lockId = raw.TakeWhile (b => b != SEPERATOR).ToArray ();
 					var lockTicks = BitConverter.ToInt64(raw.Skip(lockId.Length + 1).ToArray(), 0);
 					data = new LockData {
@@ -256,11 +253,11 @@ namespace AngiesList.Redis
 
 		public override void ReleaseItemExclusive (HttpContext context, string id, object lockId)
 		{
-			var getLock = redis.Hashes.GetString (0, lockHashKey, id);
-			var lockIdAsString = (string)lockId;
-			if (!String.IsNullOrEmpty (getLock.Result) && getLock.Result == lockIdAsString) {
+			//var getLock = redis.Hashes.Get(0, lockHashKey, id);
+			//var lockIdAsString = (string)lockId;
+			//if (getLock.Result && getLock.Result == lockIdAsString) {
 				redis.Hashes.Remove (0, lockHashKey, id);
-			}
+			//}
 		}
 
 		public override void RemoveItem (HttpContext context, string id, object lockId, SessionStateStoreData item)

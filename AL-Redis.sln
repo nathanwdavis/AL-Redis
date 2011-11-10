@@ -1,7 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
 # Visual Studio 2010
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AngiesList.Redis", "AngiesList.Redis/AngiesList.Redis.csproj", "{45C4A14B-63F5-4C83-9C03-1E587184A466}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AngiesList.Redis", "AngiesList.Redis\AngiesList.Redis.csproj", "{45C4A14B-63F5-4C83-9C03-1E587184A466}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestWebSite", "TestWebSite\TestWebSite.csproj", "{46B945A9-69D5-4376-84F1-E72BE442AD49}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -13,8 +15,12 @@ Global
 		{45C4A14B-63F5-4C83-9C03-1E587184A466}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{45C4A14B-63F5-4C83-9C03-1E587184A466}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{45C4A14B-63F5-4C83-9C03-1E587184A466}.Release|Any CPU.Build.0 = Release|Any CPU
+		{46B945A9-69D5-4376-84F1-E72BE442AD49}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{46B945A9-69D5-4376-84F1-E72BE442AD49}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{46B945A9-69D5-4376-84F1-E72BE442AD49}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{46B945A9-69D5-4376-84F1-E72BE442AD49}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(MonoDevelopProperties) = preSolution
-		StartupItem = AngiesList.Redis.csproj
+		StartupItem = TestWebSite\TestWebSite.csproj
 	EndGlobalSection
 EndGlobal
