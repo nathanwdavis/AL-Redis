@@ -6,7 +6,19 @@
 </head>
 <body>
 	<form id="form1" runat="server">
-		<asp:Button id="button1" runat="server" Text="Click me!" OnClick="button1Clicked" />
+		LastPage: <%= Session["LastPage"].ToString() %>
+        <br />
+        UtcNow: <%= ((DateTime)Session["UtcNow"]).ToLongTimeString() +" ."+ ((DateTime)Session["UtcNow"]).Millisecond %>
 	</form>
+    Frame1:
+    <iframe width="100%" src="Frame1.aspx"></iframe>
+    Frame2:
+    <iframe width="100%" src="Frame2.aspx"></iframe>
+    Frame3:
+    <iframe width="100%" src="Frame3.aspx"></iframe>
+    Frame4:
+    <iframe width="100%" src="Frame4.aspx"></iframe>
+    ReadonlyFrame:
+    <iframe width="100%" src="ReadonlyFrame.aspx"></iframe>
 </body>
 </html>

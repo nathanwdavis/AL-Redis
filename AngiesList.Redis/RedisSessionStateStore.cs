@@ -40,6 +40,7 @@ namespace AngiesList.Redis
 			} else {
 				redis = new RedisConnection ("localhost", 6379);
 			}
+            redis.Open();
 		}
 
 		public override bool SetItemExpireCallback (SessionStateItemExpireCallback expireCallback)
@@ -73,7 +74,7 @@ namespace AngiesList.Redis
 			if (getLock.Result == null) {
 				redis.Hashes.Set (0, GetKeyForSessionId (id), sessionItemHash, false);
 			}
-			else if (LockData.TryParse(getLock.Result, out lockData) && lockData.LockId == lockIdAsBytes) {
+			else if (LockData.TryParse(getLock.Result, out lockData) && Enumerable.SequenceEqual(lockData.LockId, lockIdAsBytes)) {
 				redis.Hashes.Set (0, GetKeyForSessionId (id), sessionItemHash, false);
 				redis.Hashes.Remove (0, lockHashKey, id);
 			}
@@ -127,26 +128,30 @@ namespace AngiesList.Redis
 			
 			if (rawLockData == null) {
 				var lockData = LockData.New ();
-				//using (var trans = redis.CreateTransaction()) {
+				using (var trans = redis.CreateTransaction()) {
 					var setLock = redis.Hashes.SetIfNotExists (0, lockHashKey, id, lockData.ToByteArray());
 					var getSessionData = redis.Hashes.GetAll (0, GetKeyForSessionId (id));
-					//trans.Execute ();
+					trans.Execute ();
 					setLock.Wait();
 					if (setLock.Result) {
 						locked = true;
 						lockAge = new TimeSpan (0);
 						lockId = lockData.LockId;
+
+                        var sessionItems = new SessionStateItemCollection();
 						var sessionDataHash = redis.Wait(getSessionData);
-						actions = sessionDataHash ["initialize"] [0] == 1 ? 
-								SessionStateActions.InitializeItem : SessionStateActions.None;
-						
-						var ms = new MemoryStream (sessionDataHash ["data"]);
-						var sessionItems = new SessionStateItemCollection ();
-		
-						if (ms.Length > 0) {
-							var reader = new BinaryReader (ms);
-							sessionItems = SessionStateItemCollection.Deserialize (reader);
-						}
+                        if (sessionDataHash.Count == 2)
+                        {
+                            actions = sessionDataHash["initialize"][0] == 1 ?
+                                    SessionStateActions.InitializeItem : SessionStateActions.None;
+
+                            var ms = new MemoryStream(sessionDataHash["data"]);
+                            if (ms.Length > 0)
+                            {
+                                var reader = new BinaryReader(ms);
+                                sessionItems = SessionStateItemCollection.Deserialize(reader);
+                            }
+                        }
 						return new SessionStateStoreData (sessionItems,
 		                    SessionStateUtility.GetSessionStaticObjects (context),
 		                    (int)sessionStateConfig.Timeout.TotalMinutes);
@@ -159,7 +164,7 @@ namespace AngiesList.Redis
 						}
 						return null;
 					}
-				//}
+				}
 			} else {
 				LockData lockData;
 				if (LockData.TryParse (rawLockData, out lockData)) {
@@ -187,8 +192,8 @@ namespace AngiesList.Redis
 			public static bool TryParse (byte[] raw, out LockData data)
 			{
 				if (raw != null && raw.Length > 1) {
-					var lockId = raw.TakeWhile (b => b != SEPERATOR).ToArray ();
-					var lockTicks = BitConverter.ToInt64(raw.Skip(lockId.Length + 1).ToArray(), 0);
+					var lockId = raw.Take(16).ToArray();
+					var lockTicks = BitConverter.ToInt64(raw, 17);
 					data = new LockData {
 						LockId = lockId,
 						LockUtcTime = new DateTime (lockTicks)
@@ -231,7 +236,7 @@ namespace AngiesList.Redis
 			byte[] sessionData = ms.ToArray ();
 			var newItemHash = new Dictionary<string, byte[]> ();
 			newItemHash.Add ("data", sessionData);
-			newItemHash.Add ("initialize", new byte[] {1});
+			newItemHash.Add ("initialize", new byte[] {0});
 			redis.Hashes.Set (0, GetKeyForSessionId (id), newItemHash, false);
 		}
 
