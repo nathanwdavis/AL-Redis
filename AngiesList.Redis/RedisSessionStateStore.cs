@@ -66,8 +66,9 @@ namespace AngiesList.Redis
 
 			byte[] sessionData = ms.ToArray ();
 			var sessionItemHash = new Dictionary<string, byte[]> ();
-			sessionItemHash.Add ("initialize", new byte[] {0});
-			sessionItemHash.Add ("data", sessionData);
+            sessionItemHash.Add("initialize", new byte[] { 0 });
+            sessionItemHash.Add("data", sessionData);
+            sessionItemHash.Add("timeoutMinutes", BitConverter.GetBytes(item.Timeout));
 			
 			LockData lockData;
 			getLock.Wait();
@@ -96,14 +97,22 @@ namespace AngiesList.Redis
 			if (getSessionData.Result == null) {
 				return null;
 			} else {
-				var ms = new MemoryStream (getSessionData.Result ["data"]);
-				var sessionItems = new SessionStateItemCollection ();
+                var sessionItems = new SessionStateItemCollection();
+                var sessionDataHash = getSessionData.Result;
+                if (sessionDataHash.Count == 3)
+                {
+                    var ms = new MemoryStream(sessionDataHash["data"]);
+                    if (ms.Length > 0)
+                    {
+                        var reader = new BinaryReader(ms);
+                        sessionItems = SessionStateItemCollection.Deserialize(reader);
+                    }
 
-				if (ms.Length > 0) {
-					var reader = new BinaryReader (ms);
-					sessionItems = SessionStateItemCollection.Deserialize (reader);
-				}
-				return new SessionStateStoreData (sessionItems,
+                    var timeoutMinutes = BitConverter.ToInt32(sessionDataHash["timeoutMinutes"], 0);
+                    redis.Keys.Expire(0, GetKeyForSessionId(id), timeoutMinutes * 60);
+                }
+				
+                return new SessionStateStoreData (sessionItems,
                     SessionStateUtility.GetSessionStaticObjects (context),
                     (int)sessionStateConfig.Timeout.TotalMinutes);
 			}
@@ -129,8 +138,8 @@ namespace AngiesList.Redis
 			if (rawLockData == null) {
 				var lockData = LockData.New ();
 				using (var trans = redis.CreateTransaction()) {
-					var setLock = redis.Hashes.SetIfNotExists (0, lockHashKey, id, lockData.ToByteArray());
-					var getSessionData = redis.Hashes.GetAll (0, GetKeyForSessionId (id));
+                    var setLock = trans.Hashes.SetIfNotExists(0, lockHashKey, id, lockData.ToByteArray());
+                    var getSessionData = trans.Hashes.GetAll(0, GetKeyForSessionId(id));
 					trans.Execute ();
 					setLock.Wait();
 					if (setLock.Result) {
@@ -139,8 +148,8 @@ namespace AngiesList.Redis
 						lockId = lockData.LockId;
 
                         var sessionItems = new SessionStateItemCollection();
-						var sessionDataHash = redis.Wait(getSessionData);
-                        if (sessionDataHash.Count == 2)
+                        var sessionDataHash = redis.Wait(getSessionData);
+                        if (sessionDataHash.Count == 3)
                         {
                             actions = sessionDataHash["initialize"][0] == 1 ?
                                     SessionStateActions.InitializeItem : SessionStateActions.None;
@@ -151,10 +160,13 @@ namespace AngiesList.Redis
                                 var reader = new BinaryReader(ms);
                                 sessionItems = SessionStateItemCollection.Deserialize(reader);
                             }
+
+                            var timeoutMinutes = BitConverter.ToInt32(sessionDataHash["timeoutMinutes"], 0);
+                            redis.Keys.Expire(0, GetKeyForSessionId(id), timeoutMinutes * 60);
                         }
 						return new SessionStateStoreData (sessionItems,
 		                    SessionStateUtility.GetSessionStaticObjects (context),
-		                    (int)sessionStateConfig.Timeout.TotalMinutes);
+		                    (int)sessionStateConfig.Timeout.TotalMinutes); 
 					} else {
 						rawLockData = redis.Hashes.Get(0, lockHashKey, id).Result;
 						if (rawLockData != null && LockData.TryParse (rawLockData, out lockData)) {
@@ -235,9 +247,11 @@ namespace AngiesList.Redis
 			writer.Close ();
 			byte[] sessionData = ms.ToArray ();
 			var newItemHash = new Dictionary<string, byte[]> ();
-			newItemHash.Add ("data", sessionData);
-			newItemHash.Add ("initialize", new byte[] {0});
+            newItemHash.Add("data", sessionData);
+            newItemHash.Add("initialize", new byte[] { 0 });
+            newItemHash.Add("timeoutMinutes", BitConverter.GetBytes(timeout));
 			redis.Hashes.Set (0, GetKeyForSessionId (id), newItemHash, false);
+            redis.Keys.Expire(0, GetKeyForSessionId(id), timeout * 60);
 		}
 
 		public override void Dispose ()
