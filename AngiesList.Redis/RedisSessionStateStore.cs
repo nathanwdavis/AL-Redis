@@ -281,9 +281,11 @@ namespace AngiesList.Redis
 
 		public override void RemoveItem (HttpContext context, string id, object lockId, SessionStateStoreData item)
 		{
-			var getLock = redis.Hashes.GetString (0, lockHashKey, id);
-			var lockIdAsString = (string)lockId;
-			if (!String.IsNullOrEmpty (getLock.Result) && getLock.Result == lockIdAsString) {
+			var getLock = redis.Hashes.Get(0, lockHashKey, id);
+			var lockIdAsBytes = (byte[])lockId;
+            LockData lockData;
+            if (getLock.Result != null && LockData.TryParse(getLock.Result, out lockData) && lockData.LockId == lockIdAsBytes)
+            {
 				redis.Keys.Remove (0, GetKeyForSessionId (id));
 				redis.Hashes.Remove (0, lockHashKey, id);
 			}
