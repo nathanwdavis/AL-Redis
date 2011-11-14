@@ -9,14 +9,18 @@ using System.Web;
 using System.Web.Configuration;
 using BookSleeve;
 using System.IO;
+using System.Diagnostics;
 
 namespace AngiesList.Redis
 {
 	public sealed class RedisSessionStateStore : SessionStateStoreProviderBase
 	{
-		private RedisConnection redis;
+		private RedisConnection redisConnection;
 		private SessionStateSection sessionStateConfig;
-		private string lockHashKey;
+        private string host;
+        private int port;
+        private string lockHashKey;
+        private readonly object locker = new {};
 
 		public override void Initialize (string name, NameValueCollection config)
 		{
@@ -32,16 +36,39 @@ namespace AngiesList.Redis
 			
 			if (!String.IsNullOrWhiteSpace (stateConnection)) {
 				var stateConnectionParts = sessionStateConfig.StateConnectionString.Split ('=', ':');
-				string host = stateConnectionParts.ElementAtOrDefault (1) ?? "localhost",
-					portAsString = stateConnectionParts.ElementAtOrDefault (2) ?? "6379";
-				var port = Int32.Parse (portAsString);
+                host = stateConnectionParts.ElementAtOrDefault(1) ?? "localhost";
+				var portAsString = stateConnectionParts.ElementAtOrDefault (2) ?? "6379";
+				port = Int32.Parse (portAsString);
 				
-				redis = new RedisConnection (host, port);
 			} else {
-				redis = new RedisConnection ("localhost", 6379);
+                host = "localhost";
+                port = 6379;
 			}
-            redis.Open();
 		}
+
+        private RedisConnection GetRedisConnection()
+        {
+            if (redisConnection == null ||
+                (redisConnection.State != RedisConnectionBase.ConnectionState.Open &&
+                 redisConnection.State != RedisConnectionBase.ConnectionState.Opening))
+            {
+                lock (locker)
+                {
+                    if (redisConnection == null ||
+                        (redisConnection.State != RedisConnectionBase.ConnectionState.Open &&
+                         redisConnection.State != RedisConnectionBase.ConnectionState.Opening))
+                    {
+                        redisConnection = new RedisConnection(host, port);
+                        redisConnection.Closed += (object sender, EventArgs e) =>
+                        {
+                            //Debug.WriteLine("redisConnection closed");
+                        };
+                        redisConnection.Open();
+                    }
+                }
+            }
+            return redisConnection;
+        }
 
 		public override bool SetItemExpireCallback (SessionStateItemExpireCallback expireCallback)
 		{
@@ -54,7 +81,8 @@ namespace AngiesList.Redis
           object lockId,
           bool newItem)
 		{
-			var getLock = redis.Hashes.Get(0, lockHashKey, id);
+            var redis = GetRedisConnection();
+            var getLock = redis.Hashes.Get(0, lockHashKey, id);
 			var lockIdAsBytes = (byte[])lockId;
 			var ms = new MemoryStream ();
 			var writer = new BinaryWriter (ms);
@@ -88,7 +116,8 @@ namespace AngiesList.Redis
             out object lockId, 
             out SessionStateActions actions)
 		{
-			var getSessionData = redis.Hashes.GetAll (0, GetKeyForSessionId (id));
+            var redis = GetRedisConnection();
+            var getSessionData = redis.Hashes.GetAll (0, GetKeyForSessionId (id));
 			locked = false;
 			lockAge = new TimeSpan (0);
 			lockId = null;
@@ -125,7 +154,8 @@ namespace AngiesList.Redis
             out object lockId, 
             out SessionStateActions actions)
 		{
-			var getLockData = redis.Hashes.Get (0, lockHashKey, id);
+            var redis = GetRedisConnection();
+            var getLockData = redis.Hashes.Get (0, lockHashKey, id);
 			
 			actions = SessionStateActions.None;
 			locked = false;
@@ -241,7 +271,8 @@ namespace AngiesList.Redis
 
 		public override void CreateUninitializedItem (HttpContext context, string id, int timeout)
 		{
-			var ms = new MemoryStream ();
+            var redis = GetRedisConnection();
+            var ms = new MemoryStream ();
 			var writer = new BinaryWriter (ms);
 			(new SessionStateItemCollection ()).Serialize (writer);
 			writer.Close ();
@@ -256,7 +287,8 @@ namespace AngiesList.Redis
 
 		public override void Dispose ()
 		{
-			IDisposable disposable;
+            var redis = GetRedisConnection();
+            IDisposable disposable;
 			if ((disposable = redis as IDisposable) != null) {
 				disposable.Dispose ();
 			}
@@ -272,7 +304,8 @@ namespace AngiesList.Redis
 
 		public override void ReleaseItemExclusive (HttpContext context, string id, object lockId)
 		{
-			//var getLock = redis.Hashes.Get(0, lockHashKey, id);
+            var redis = GetRedisConnection();
+            //var getLock = redis.Hashes.Get(0, lockHashKey, id);
 			//var lockIdAsString = (string)lockId;
 			//if (getLock.Result && getLock.Result == lockIdAsString) {
 				redis.Hashes.Remove (0, lockHashKey, id);
@@ -281,7 +314,8 @@ namespace AngiesList.Redis
 
 		public override void RemoveItem (HttpContext context, string id, object lockId, SessionStateStoreData item)
 		{
-			var getLock = redis.Hashes.Get(0, lockHashKey, id);
+            var redis = GetRedisConnection();
+            var getLock = redis.Hashes.Get(0, lockHashKey, id);
 			var lockIdAsBytes = (byte[])lockId;
             LockData lockData;
             if (getLock.Result != null && LockData.TryParse(getLock.Result, out lockData) && lockData.LockId == lockIdAsBytes)
