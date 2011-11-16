@@ -25,7 +25,7 @@ namespace AngiesList.Redis
 		public override void Initialize (string name, NameValueCollection config)
 		{
 			if (String.IsNullOrWhiteSpace (name)) {
-				name = "RedisAspNetSessionStateStore";
+				name = "AspNetSession";
 			}
 			base.Initialize (name, config);
 			
@@ -200,7 +200,7 @@ namespace AngiesList.Redis
 					} else {
 						rawLockData = redis.Hashes.Get(0, lockHashKey, id).Result;
 						if (rawLockData != null && LockData.TryParse (rawLockData, out lockData)) {
-							locked = false;
+							locked = true;
 							lockId = lockData.LockId;
 							lockAge = DateTime.UtcNow - lockData.LockUtcTime;
 						}
@@ -210,7 +210,7 @@ namespace AngiesList.Redis
 			} else {
 				LockData lockData;
 				if (LockData.TryParse (rawLockData, out lockData)) {
-					locked = false;
+					locked = true;
 					lockId = lockData.LockId;
 					lockAge = DateTime.UtcNow - lockData.LockUtcTime;
 				}
